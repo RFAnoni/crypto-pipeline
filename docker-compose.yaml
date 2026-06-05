@@ -1,0 +1,67 @@
+version: '3.8'
+
+networks:
+  crypto_network:
+    driver: bridge
+
+services:
+  # --- BANCO DE DADOS (MySQL) ---
+  mysql:
+    image: mysql:8.0
+    container_name: crypto_mysql
+    command: --innodb-buffer-pool-size=128M
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: crypto_db
+      MYSQL_USER: airflow_user
+      MYSQL_PASSWORD: airflow_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    networks:
+      - crypto_network
+
+  # --- ORQUESTRADOR (Apache Airflow - Interface Web) ---
+  airflow-webserver:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: airflow_webserver
+    command: webserver
+    # O entrypoint abaixo inicializa o banco do Airflow e cria o usuário Admin
+    entrypoint: [ "/bin/bash", "-c", "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin && airflow webserver" ]
+    depends_on:
+      - mysql
+    environment:
+      - LOAD_EXPLOADS=false
+      - EXAMPLES=false
+      # Dizemos ao Airflow para usar o nosso MySQL como banco de metadados
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=mysql+mysqldb://airflow_user:airflow_password@mysql:3306/crypto_db
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    networks:
+      - crypto_network
+
+  # --- ORQUESTRADOR (Apache Airflow - Agendador) ---
+  airflow-scheduler:
+    image: apache/airflow:2.7.1-python3.10
+    container_name: airflow_scheduler
+    command: scheduler
+    depends_on:
+      - mysql
+      - airflow-webserver
+    environment:
+      - LOAD_EXPLOADS=false
+      - EXAMPLES=false
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=mysql+mysqldb://airflow_user:airflow_password@mysql:3306/crypto_db
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    networks:
+      - crypto_network
